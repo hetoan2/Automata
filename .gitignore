@@ -13,6 +13,7 @@ $RECYCLE.BIN/
 
 ## Directory-based project format:
 .idea/
+latest/*.json
 
 # Windows Installer files
 *.cab
