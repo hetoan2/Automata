@@ -7,6 +7,7 @@ Created: 2/24/15
 """
 # declare imports
 import sys
+import os
 import getopt
 import re
 import json
@@ -172,6 +173,34 @@ def process_file(filename):
     _f = parse_to_set(f, state)
     _delta = parse_delta_table(delta, _sigma, _states)
 
+    accepting_states = ''
+    for s in _f:
+        accepting_states = accepting_states + " " + str(s)
+
+    original = """digraph finite_state_machine {
+  rankdir=LR;
+  size="8,5"
+  node [shape = doublecircle];
+ """
+
+    original += accepting_states + ";"  # List of accepting states: S_0 S_1 S_4 etc;
+    original += "\n  node [shape = circle];"
+
+    for startState, transitions in _delta.iteritems():
+        original += "  " + str(startState) + ";\n"
+        for t in transitions:
+            for endState in _delta[str(startState)][str(t)]:
+                original += "  " + str(startState) + " -> " + str(endState)
+                original += "[label = \""+str(t)+"\"];\n"
+
+    original += "  node [style = invis, shape = none, label = \"\", width = 0, height = 0];\n" 
+    original += "  pointer -> " + _q + ";\n"
+    original += "  labelloc=\"t\";\n"
+    original += "  label=\"Original DFA\";\n"
+    original += "}"
+
+    print original
+
     if verbose:
         print_delta_table(_delta, _sigma)
 
@@ -182,27 +211,52 @@ def process_file(filename):
         removed.append(deleted_node)
 
     for merge_node, removed_node in remappings:
-        _states.remove(removed_node)
         _delta.pop(removed_node)
+        preserved_node_for_merging = _delta.pop(merge_node)
+           
+        _delta[merge_node+removed_node] = preserved_node_for_merging
+
+        # combine both nodes into a new node
         for start_node in _delta.keys():
             for transition in _delta[start_node]:
                 if removed_node in _delta[start_node][transition]:
                     _delta[start_node][transition].remove(removed_node)
                     _delta[start_node][transition].append(merge_node)
-
+    
+    for start in _delta:    
+        # rename all transitions to old nodes to merged node
+        for transition in _delta[start]:
+            dest_node_list = _delta[start][transition]
+            for m, r in remappings:
+                if m in dest_node_list:
+                    dest_node_list.remove(m)
+                    dest_node_list.append(m+r)
+                if r in dest_node_list:
+                    dest_node_list.remove(r)
+                    dest_node_list.append(m+r)
+        
     if verbose:
         print "Reduced Delta Table"
         print_delta_table(_delta, _sigma)
 
+    # rename our starting state if it was changed
+    for m, r in remappings:
+        if _q == m or _q == r:
+            _q = m+r
+
+    # rename accepting states
     accepting_states = ''
     for s in _f:
-        accepting_states = accepting_states + " "+str(s)
-
+        for m, r in remappings:
+            if s == m or s == r:
+                s = m+r
+            accepting_states = accepting_states + " " + str(s)
+ 
     digraph = """digraph finite_state_machine {
   rankdir=LR;
   size="8,5"
   node [shape = doublecircle];
-  """
+ """
 
     digraph += accepting_states + ";"  # List of accepting states: S_0 S_1 S_4 etc;
     digraph += "\n  node [shape = circle];"
@@ -214,11 +268,14 @@ def process_file(filename):
                 digraph += "  " + str(startState) + " -> " + str(endState)
                 digraph += "[label = \""+str(t)+"\"];\n"
 
+    digraph += "  node [style = invis, shape = none, label = \"\", width = 0, height = 0];\n"
+    digraph += "  pointer -> " + _q + ";\n"
+    
     digraph += "  labelloc=\"t\";\n"
     digraph += "  label=\"Reduced DFA\";\n"
     digraph += "}"
 
-    return digraph
+    return digraph, original
 
 
 # main declaration
@@ -244,25 +301,46 @@ def main(argv):
             filename = arg
         elif opt in ("-o", "--ofile"):
             log_filename = arg
+            log_filename = log_filename[:log_filename.rfind(".")]
             log = True
             verbose = True
         elif opt in ("-v", "--verbose"):
             verbose = True
 
-    result = process_file(filename)
+    try:
+        reduced, original = process_file(filename)
+    except:
+        print "Please input a DFA to be reduced. This is either an NFA or a improperly formatted file."
+        log = False     # set log to false to avoid saving garbage
 
     if log:
-        log_file = open(log_filename, "w")
-        sys.stdout = log_file
-        print result
+        reduced_graph = open(log_filename + ".dot", "w")
+        sys.stdout = reduced_graph
+        print reduced
+        reduced_graph.close()
+        og_graph = open(log_filename + "_original.dot", "w")
+        sys.stdout = og_graph
+        print original
+        og_graph.close()
 
     # restore default stdout (not needed as of yet)
     sys.stdout = old_stdout
 
     # close our log file when done executing
     if log:
-        log_file.close()
-
+        # generate the graphviz image
+        os.system("dot -Tpng " + log_filename + ".dot" + " -o reduced.png")
+        os.system("dot -Tpng " + log_filename + "_original.dot" + " -o original.png")
+        combined = """graph {
+     node [shape=none, label=""]
+     d1 [image="original.png"]
+     d2 [image="reduced.png"]
+}"""
+        final_graph = open(log_filename + "_combined.dot", "w")
+        sys.stdout = final_graph
+        print combined
+        final_graph.close()
+        os.system("dot -Tpng " + log_filename + "_combined.dot -o " + log_filename + ".png") 
 
 # main execution
 if __name__ == "__main__":
