@@ -26,16 +26,155 @@ class DFA(object):
         self.start_state = None
         self.accepting_states = list()
 
+    def get_end_state(self, start_state, transition):
+        return self.delta_transition_table[start_state][str(transition)][0]
+
     def test_tape(self, transitions):
         current_state = self.start_state
         for transition in transitions:
             if verbose:
                 print current_state, "-"+str(transition)+"->",
-                current_state = self.delta_transition_table[current_state][str(transition)][0]
+            current_state = self.delta_transition_table[current_state][str(transition)][0]
         if verbose:
             print current_state
 
         return current_state in self.accepting_states
+
+    # return the table of state inequivalences
+    def table_fill(self):
+        """
+        Run the table fill algorithm on the DFA, printing a list of indistinguishable pairs.
+        :return:
+        """
+        if verbose:
+            print '\n==============================\n'
+
+        # create our list of marked pairs (distinguishable)
+        marked = []
+
+        # create a list of state pairs for our table-filling algorithm
+        pairs = []
+        for p in self.states:
+            for q in self.states:
+                if q != p:
+                    if (q, p) not in pairs and (p, q) not in pairs:
+                        # if the state goes to accepting state it must be marked
+                        if p in self.accepting_states or q in self.accepting_states:
+                            marked.append((p, q))
+                        else:
+                            pairs.append((p, q))
+
+        # create a list of indistinguishable nodes by listing all pairs and removing the marked ones as we find them
+        indistinguishable_pairs = pairs[:]
+
+        # algorithm requires that this be run twice
+        for i in range(2):
+            for p, q in pairs:
+                for transition in self.input_symbols:
+                    r = self.delta_transition_table[p][str(transition)]
+                    s = self.delta_transition_table[q][str(transition)]
+                    if r != [] and s != []:
+                        r = r[0]
+                        s = s[0]
+                        if s < r:
+                            _t = s
+                            s = r
+                            r = _t
+                        if (r, s) in marked:
+                            if (p, q) not in marked:
+                                marked.append((p, q))
+                                indistinguishable_pairs.remove((p, q))
+
+        if verbose:
+            print "Indistinguishable Pairs:", indistinguishable_pairs
+            print '\n==============================\n'
+
+        return indistinguishable_pairs
+
+
+class NFA(DFA):
+    def __init__(self):
+        super(NFA, self).__init__()
+        self.fringe = list()
+
+    def get_epsilon_states(self, state):
+        return self.delta_transition_table[state]['e']
+
+    def test_tape(self, transitions):
+        current_states = [self.start_state]
+        for transition in transitions:
+            if verbose:
+                pass
+            for current_state in current_states:
+                if current_state not in self.fringe:
+                    self.fringe.append(current_state)
+                for epsilon_state in self.delta_transition_table[current_state]['e']:
+                    if epsilon_state not in self.fringe:
+                        self.fringe.append(epsilon_state)
+
+            next_states = list()
+            for current_state in self.fringe:
+                destination_state = self.delta_transition_table[current_state][str(transition)][0]
+                if destination_state not in next_states:
+                    next_states.append(destination_state)
+
+            current_states = next_states
+
+    def toDFA(self):
+        """
+        Do the NFA -> DFA algorithm, and return the current NFA as a DFA.
+        """
+        new_states = list()
+        new_accepting_states = list()
+        delta = {}
+        for state in self.states:
+            compound_state = state
+
+            for destination_state in self.get_epsilon_states(state):
+                compound_state += destination_state
+
+            # if we have not seen this compound state before, we should add it to our new DFA
+            if compound_state not in new_states:
+                # first, make sure the compound node is sorted so AB == BA, etc.
+                compound_state = ''.join(sorted(compound_state))
+
+                # add the state to the list of new states
+                new_states.append(compound_state)
+
+                # check all our accepting states, if this compound state contains a previous accepting state, add it.
+                for accepting_state in self.accepting_states:
+                    if accepting_state in compound_state:
+                        new_accepting_states.append(compound_state)
+
+        for state in new_states:
+            for transition in self.input_symbols:
+                # get the destination states by following the transition and then epsilon
+                # only use the first state in the compound state (state[:1]), since the compound state
+                # has a common end state for all the states which compose it.
+                destination_states = self.get_epsilon_states(self.get_end_state(state[:1], transition))
+
+                # this new compound state is made up of the destination states following the transition symbol + epsilon
+                compound_state = ""
+                for destination_state in destination_states:
+                    compound_state += destination_state
+                compound_state = ''.join(sorted(compound_state))
+
+                # create our new delta table, with transitions for this state.
+                delta[state] = {}
+                for _transition in self.input_symbols:
+                    delta[state][_transition] = {}
+
+                # finally, add the compound state as the result of the transition, (epsilon removed)
+                delta[state][transition] = compound_state
+
+        dfa = DFA()
+        dfa.delta_transition_table = delta
+        dfa.states = new_states
+        dfa.accepting_states = new_accepting_states
+        dfa.input_symbols = self.input_symbols
+        dfa.start_state = self.start_state
+
+        return dfa
 
 
 class Alphabet(object):
@@ -78,6 +217,37 @@ class Language(object):
                     pass
         # after exhausting all definitions, if nothing returned true, then return false
         return False
+
+
+# define the stack for our push-down automata
+class Stack(object):
+    def __init__(self):
+        self.stack_array = []
+
+    def get_current(self):
+        try:
+            top = self.stack_array[-1]     # returns the top element of the stack
+        except:
+            return "Z"      # if it can't get an element (empty) return the marker for end of stack
+        return top
+
+    def follow_transition(self, transition):
+        # pop whatever is at the top of the stack
+        self.stack_array.pop()
+        transition = ("q1", "XZ")
+        # push the new elements back into the stack
+        stack_changes = transition[1]
+        element1 = transition[1][1]
+        element2 = transition[1][0]
+
+        if len(stack_changes) == 2:     # if we have 2 things to add to the stack, then add both
+            if element1 != "Z":     # for our end of stack marker, just ignore the input
+                self.stack_array.add(element1)
+
+        if element2 != "/":     # for epsilon, do not add to the stack
+            self.stack_array.add(element2)
+
+        return not len(self.stack_array)    # will return true if the stack is empty
 
 
 # define helper class for tree structure
@@ -195,8 +365,12 @@ def read_file(filename):
     _q = data["start"]
     f = data["F"]
     delta = data["delta"]
-    transition_string = data["tape"]
-    direction = data["order"]
+    try:
+        transition_string = data["tape"]
+        direction = data["order"]
+    except KeyError:
+        transition_string = None
+        direction = None
     try:
         for key in data['opt']:
             print key, data['opt'][key]
@@ -321,12 +495,14 @@ def _process_file(filename):
     _states = parse_to_set(q, state)
     _f = parse_to_set(f, state)
     _delta = parse_delta_table(delta, _sigma, _states)
-    _transitions = parse_transition_string(transition_string, _sigma, strict=False)
+    if transition_string is not None:
+        _transitions = parse_transition_string(transition_string, _sigma, strict=False)
 
     if verbose:
         print_delta_table(_delta, _sigma)
 
-    t, paths, end_fringe = test_query(_transitions, _states, _q, _f, _delta, _sigma)
+    if transition_string is not None:
+        t, paths, end_fringe = test_query(_transitions, _states, _q, _f, _delta, _sigma)
     print t
 
     accepting_states = ''
@@ -394,7 +570,9 @@ def process_file(filename):
     _states = parse_to_set(q, state)
     _f = parse_to_set(f, state)
     _delta = parse_delta_table(delta, _sigma, _states)
-    _transitions = parse_transition_string(transition_string, _sigma, strict=strict)
+
+    if transition_string is not None:
+        _transitions = parse_transition_string(transition_string, _sigma, strict=strict)
 
     # print out variables parsed from file
     print "Q (States):", _states
@@ -402,7 +580,6 @@ def process_file(filename):
     print "Q0 (Starting State):", _q
     print "F (Final/Accepting State(s)):", _f
     print "delta:", _delta
-    print "tape:", _transitions
 
     dfa = DFA()
     dfa.states = _states
@@ -411,15 +588,18 @@ def process_file(filename):
     dfa.accepting_states = _f
     dfa.delta_transition_table = _delta
 
-    result_string = ""
-    try:
-        result_string += "\nPasses: "+str(dfa.test_tape(_transitions))
-    except KeyError:
-        result_string += "\n\nError: Tape contains invalid transition."\
-              "\nEnable strict on parse_transition_string() to force only valid transitions."
-        result_string += "\nPasses: False."
+    if transition_string is not None:
+        print "tape:", _transitions
 
-    return result_string
+        result_string = ""
+        try:
+            result_string += "\nPasses: "+str(dfa.test_tape(_transitions))
+        except KeyError:
+            result_string += "\n\nError: Tape contains invalid transition."\
+                  "\nEnable strict on parse_transition_string() to force only valid transitions."
+            result_string += "\nPasses: False."
+
+        return result_string
 
 
 # main declaration
