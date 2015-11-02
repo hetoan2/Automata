@@ -1,0 +1,8 @@
+{
+"Q": "{A, B, C, D}",
+"F": "{D}",
+"sigma": "{0}",
+"delta": "{(A, e, B), (A, e, D), (B, 0, C), (C, e, B), (C, e, D)}",
+"start": "A",
+"convert": "nfa2dfa"
+}
