@@ -27,7 +27,10 @@ class DFA(object):
         self.accepting_states = list()
 
     def get_end_state(self, start_state, transition):
-        return self.delta_transition_table[start_state][str(transition)][0]
+        try:
+            return self.delta_transition_table[start_state][str(transition)][0]
+        except:
+            return None
 
     def test_tape(self, transitions):
         current_state = self.start_state
@@ -98,7 +101,10 @@ class NFA(DFA):
         self.fringe = list()
 
     def get_epsilon_states(self, state):
-        return self.delta_transition_table[state]['e']
+        try:
+            return self.delta_transition_table[state]['e']
+        except:
+            return None
 
     def test_tape(self, transitions):
         current_states = [self.start_state]
@@ -151,7 +157,13 @@ class NFA(DFA):
                 # get the destination states by following the transition and then epsilon
                 # only use the first state in the compound state (state[:1]), since the compound state
                 # has a common end state for all the states which compose it.
-                destination_states = self.get_epsilon_states(self.get_end_state(state[:1], transition))
+                end_state = self.get_end_state(state[:1], transition)
+                print state[:1], transition, end_state
+
+                if end_state is None:
+                    continue
+
+                destination_states = self.get_epsilon_states(end_state)
 
                 # this new compound state is made up of the destination states following the transition symbol + epsilon
                 compound_state = ""
@@ -371,6 +383,12 @@ def read_file(filename):
     except KeyError:
         transition_string = None
         direction = None
+
+    try:
+        conversion = data['convert']
+    except KeyError:
+        conversion = None
+
     try:
         for key in data['opt']:
             print key, data['opt'][key]
@@ -380,7 +398,7 @@ def read_file(filename):
     if direction == "<-":
         transition_string = transition_string[::-1]
 
-    return sigma, q, _q, f, delta, transition_string
+    return sigma, q, _q, f, delta, transition_string, conversion
 
 
 # return whether or not the transition string lands in accepting state
@@ -487,73 +505,6 @@ def print_node(node):
             print_node(child)
 
 
-# process the given file (and print related data)
-def _process_file(filename):
-    sigma, q, _q, f, delta, transition_string = read_file(filename)
-
-    _sigma = parse_to_set(sigma, int)
-    _states = parse_to_set(q, state)
-    _f = parse_to_set(f, state)
-    _delta = parse_delta_table(delta, _sigma, _states)
-    if transition_string is not None:
-        _transitions = parse_transition_string(transition_string, _sigma, strict=False)
-
-    if verbose:
-        print_delta_table(_delta, _sigma)
-
-    if transition_string is not None:
-        t, paths, end_fringe = test_query(_transitions, _states, _q, _f, _delta, _sigma)
-    print t
-
-    accepting_states = ''
-    for s in _f:
-        accepting_states = accepting_states + " "+str(s)
-
-    print paths
-
-    digraph = """digraph finite_state_machine {
-  rankdir=LR;
-  size="8,5"
-  node [shape = doublecircle];
-  """
-
-    digraph += accepting_states + ";"  # List of accepting states: S_0 S_1 S_4 etc;
-    digraph += "\n  node [shape = circle];"
-
-    for startState, transitions in _delta.iteritems():
-        if not in_fringe(str(startState), end_fringe):
-            if str(startState) in paths:
-                digraph += "  " + str(startState) + " [style = filled, fillcolor=lightblue];\n"
-        else:
-            if str(startState) in _f:
-                digraph += "  " + str(startState) + " [style = filled, fillcolor=olivedrab1, color=limegreen];\n"
-            else:
-                if str(startState) in paths:
-                    digraph += "  " + str(startState) + " [style = filled, fillcolor=lightblue, color=crimson];\n"
-                else:
-                    digraph += "  " + str(startState) + " [style = filled, fillcolor=lightcoral];\n"
-        for t in transitions:
-            for endState in _delta[str(startState)][str(t)]:
-                visited = False
-                try:
-                    # if the node is in the paths table, then mark visited on graph
-                    if paths[str(startState)][str(t)][str(endState)]:
-                        visited = True
-                except LookupError:
-                    pass
-                digraph += "  " + str(startState) + " -> " + str(endState)
-                if visited:
-                    digraph += "[color=dodgerblue, label = \""+str(t)+"\"];\n"
-                else:
-                    digraph += "[color=gray75, label = \""+str(t)+"\"];\n"
-
-    digraph += "  labelloc=\"t\";\n"
-    digraph += "  label=\"" + str(_transitions) + "\";\n"
-    digraph += "}"
-
-    return digraph
-
-
 def in_fringe(find_state, fringe):
     for s in fringe:
         if s.state == find_state:
@@ -563,7 +514,7 @@ def in_fringe(find_state, fringe):
 
 def process_file(filename):
     # here the mathematical notation from the book is converted to the structure's english name
-    sigma, q, _q, f, delta, transition_string = read_file(filename)
+    sigma, q, _q, f, delta, transition_string, conversion = read_file(filename)
 
     # load the file data here
     _sigma = parse_to_set(sigma, int)
@@ -581,12 +532,31 @@ def process_file(filename):
     print "F (Final/Accepting State(s)):", _f
     print "delta:", _delta
 
-    dfa = DFA()
-    dfa.states = _states
-    dfa.input_symbols = _sigma
-    dfa.start_state = _q
-    dfa.accepting_states = _f
-    dfa.delta_transition_table = _delta
+    if conversion is None:
+        dfa = DFA()
+        dfa.states = _states
+        dfa.input_symbols = _sigma
+        dfa.start_state = _q
+        dfa.accepting_states = _f
+        dfa.delta_transition_table = _delta
+    elif conversion == "nfa2dfa":
+        print "ran"
+
+        nfa = NFA()
+        nfa.states = _states
+        nfa.input_symbols = _sigma
+        nfa.start_state = _q
+        nfa.accepting_states = _f
+        nfa.delta_transition_table = _delta
+
+        nfa2dfa = nfa.toDFA()
+
+        # print out variables parsed from file
+        print "Q (States):", nfa2dfa.states
+        print "Sigma (Input Symbols):", nfa2dfa.input_symbols
+        print "Q0 (Starting State):", nfa2dfa.start_state
+        print "F (Final/Accepting State(s)):", nfa2dfa.accepting_states
+        print "delta:", nfa2dfa.delta_transition_table
 
     if transition_string is not None:
         print "tape:", _transitions
