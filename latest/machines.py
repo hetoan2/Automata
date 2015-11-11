@@ -236,6 +236,9 @@ class Stack(object):
     def __init__(self):
         self.stack_array = []
 
+    def peek(self):
+        return self.get_current()
+
     def get_current(self):
         try:
             top = self.stack_array[-1]     # returns the top element of the stack
@@ -260,6 +263,101 @@ class Stack(object):
             self.stack_array.add(element2)
 
         return not len(self.stack_array)    # will return true if the stack is empty
+
+    def push(self, symbol):
+        # push the symbol to the top of the stack
+        self.stack_array.append(symbol)
+
+    def push_all(self, symbol_string):
+        # push the symbols to the top of the stack (in order given)
+        for c in symbol_string:
+            self.push(c)
+
+    def pop(self):
+        # remove and return the top element off of the stack
+        return self.stack_array.pop()
+
+    def replace(self, symbol):
+        # replace the top element in the stack with the given symbol
+        self.stack_array[-1] = symbol
+
+
+class PushDownAutomata(NFA):
+    def __init__(self):
+        super(PushDownAutomata, self).__init__()
+        self.stack = Stack()
+        self.test_cases = list()
+        self.stack_symbols = list()     # denoted by symbol T, the set of stack symbols
+        self.stack_start_symbol = None  # Z_0 is the stack symbol at the start
+        self.current_state = self.start_state
+        self.loop_state = -1
+        self.fail_state = -1
+
+    def add_rules(self):
+        # add a particular rule in the form of a state transition to the pda
+        # (0, n, 1, m, 2, 0)
+        rules = (0, 'n', 1, 'm', 2, '0')
+        for rule in enumerate(rules):
+            # process by pairs
+            if rule[0] % 2 == 0:
+                # if we have not reached our loop state yet (has not been created)
+                if self.loop_state == -1:
+                    self.loop_state = next(rule)[1]
+                    if not isinstance(self.loop_state, basestring):
+                        self.loop_state = self.fail_state
+                    self.add_rule(rule[1], "Z", self.loop_state, rule[1])
+                else:
+                    if isinstance(next(rule)[1], basestring):
+                        # if we get a string here (non integer) then it means repeat n/m times (loop state)
+                        self.add_rule(rule[1], rule[1], self.loop_state, rule[1]+rule[1])
+                    else:
+                        # if we got an integer (0) only? then we should make it reject TODO: test for 0 equality
+                        self.add_rule(rule[1], rule[1], self.fail_state, "Z", reject=True)
+                # try to add the transition rule to the next symbol
+                try:
+                    input_symbol = next(next(rule))[1]      # the input symbol for next rule
+                    end_state = next(next(next(rule)))[1]   # power of next rule in list
+                    self.add_rule(input_symbol, rule[1], end_state, str(rule[1])+str(input_symbol))
+                except:
+                    pass
+
+        return
+
+    def add_rule(self, input_symbol, stack_top, end_state, stack_new, reject=False):
+        if reject:
+            self.delta_transition_table[input_symbol][stack_top] = None     # the none flag will be used to reject
+        else:
+            self.delta_transition_table[input_symbol][stack_top] = (end_state, stack_new)
+        return
+
+    def test(self, string):
+        for symbol in string:
+            result = self.make_move(symbol)
+            # make_move should return none unless the end of the stack was reached, then it returns the result
+            if result is not None:
+                return result
+
+        # if after all symbols are processed we have our end of stack symbol, then we accept.
+        if self.stack.peek() == "Z":
+            return True
+        return False
+
+    def make_move(self, input_symbol):
+        stack_top = self.stack.pop()
+        result = self.delta_transition_table[input_symbol][stack_top]
+        self.current_state = result[0]
+        self.stack.push_all(result[1])
+        # check to see if we are supposed to end here (empty stack)
+        if self.stack.peek() == "Z":
+            # if we are at the end, determine if we accept by the current state
+            return self.current_state in self.accepting_states
+        return None
+
+    def set_configuration(self, lang):
+        self.delta_transition_table = list()
+        for i in enumerate(lang):
+            if i[0] % 2 == 0:
+                self.delta_transition_table.append({})
 
 
 # define helper class for tree structure
@@ -372,33 +470,53 @@ def read_file(filename):
     if verbose:
         print "Input File:\n"
         pprint(data)
-    sigma = data["sigma"]
-    q = data["Q"]
-    _q = data["start"]
-    f = data["F"]
-    delta = data["delta"]
-    try:
-        transition_string = data["tape"]
-        direction = data["order"]
-    except KeyError:
-        transition_string = None
-        direction = None
 
     try:
-        conversion = data['convert']
-    except KeyError:
-        conversion = None
+        type = data["type"]
+        if type == "pda":
 
-    try:
-        for key in data['opt']:
-            print key, data['opt'][key]
-            globals()[key] = data['opt'][key]
-    except KeyError:
-        pass
-    if direction == "<-":
-        transition_string = transition_string[::-1]
+            pda = PushDownAutomata()
 
-    return sigma, q, _q, f, delta, transition_string, conversion
+            pda.accepting_states = ['a']
+            pda.start_state = ['s']
+
+            cfg = data["cfg"]
+            for language in re.findall('\(.*?\)', cfg):
+                lang = language.split(",")
+                lang[0] = lang[0][1:]
+                lang[-1] = lang[-1][:-1]
+                lang = [i.strip() for i in lang if i != " "]
+                pda.set_configuration(lang)
+                print lang
+        return
+    except KeyError:
+        sigma = data["sigma"]
+        q = data["Q"]
+        _q = data["start"]
+        f = data["F"]
+        delta = data["delta"]
+        try:
+            transition_string = data["tape"]
+            direction = data["order"]
+        except KeyError:
+            transition_string = None
+            direction = None
+
+        try:
+            conversion = data['convert']
+        except KeyError:
+            conversion = None
+
+        try:
+            for key in data['opt']:
+                print key, data['opt'][key]
+                globals()[key] = data['opt'][key]
+        except KeyError:
+            pass
+        if direction == "<-":
+            transition_string = transition_string[::-1]
+
+        return sigma, q, _q, f, delta, transition_string, conversion
 
 
 # return whether or not the transition string lands in accepting state
@@ -514,7 +632,10 @@ def in_fringe(find_state, fringe):
 
 def process_file(filename):
     # here the mathematical notation from the book is converted to the structure's english name
-    sigma, q, _q, f, delta, transition_string, conversion = read_file(filename)
+    try:
+        sigma, q, _q, f, delta, transition_string, conversion = read_file(filename)
+    except:
+        return
 
     # load the file data here
     _sigma = parse_to_set(sigma, int)
