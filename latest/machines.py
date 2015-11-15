@@ -234,7 +234,7 @@ class Language(object):
 # define the stack for our push-down automata
 class Stack(object):
     def __init__(self):
-        self.stack_array = []
+        self.stack_array = ["Z"]
 
     def peek(self):
         return self.get_current()
@@ -271,6 +271,7 @@ class Stack(object):
     def push_all(self, symbol_string):
         # push the symbols to the top of the stack (in order given)
         for c in symbol_string:
+            # print "pushed ", c
             self.push(c)
 
     def pop(self):
@@ -293,45 +294,65 @@ class PushDownAutomata(NFA):
         self.loop_state = -1
         self.fail_state = -1
 
-    def add_rules(self):
+    def add_rules(self, rules):
         # add a particular rule in the form of a state transition to the pda
         # (0, n, 1, m, 2, 0)
-        rules = (0, 'n', 1, 'm', 2, '0')
-        for rule in enumerate(rules):
+        # rules = (0, 'n', 1, 'm', 2, '0')
+        rule_list = list(enumerate(rules))
+
+        for rule in rule_list:
             # process by pairs
+            # print rule
             if rule[0] % 2 == 0:
+                # print "ran ", rule[0]
                 # if we have not reached our loop state yet (has not been created)
                 if self.loop_state == -1:
-                    self.loop_state = next(rule)[1]
+                    # print next(rule)[1]
+                    self.loop_state = rule_list[rule[0]+1][1]
                     if not isinstance(self.loop_state, basestring):
                         self.loop_state = self.fail_state
                     self.add_rule(rule[1], "Z", self.loop_state, rule[1])
                 else:
-                    if isinstance(next(rule)[1], basestring):
+                    if isinstance(rule_list[rule[0]+1][1], basestring):
+                        # print rule[0], rule[1]
                         # if we get a string here (non integer) then it means repeat n/m times (loop state)
                         self.add_rule(rule[1], rule[1], self.loop_state, rule[1]+rule[1])
                     else:
+                        # print rule[0], rule[1]
                         # if we got an integer (0) only? then we should make it reject TODO: test for 0 equality
                         self.add_rule(rule[1], rule[1], self.fail_state, "Z", reject=True)
                 # try to add the transition rule to the next symbol
                 try:
-                    input_symbol = next(next(rule))[1]      # the input symbol for next rule
-                    end_state = next(next(next(rule)))[1]   # power of next rule in list
+                    input_symbol = rule_list[rule[0]+2][1]      # the input symbol for next rule
+                    end_state = rule_list[rule[0]+3][1]   # power of next rule in list
                     self.add_rule(input_symbol, rule[1], end_state, str(rule[1])+str(input_symbol))
                 except:
                     pass
+            else:
+                continue
 
         return
 
     def add_rule(self, input_symbol, stack_top, end_state, stack_new, reject=False):
-        if reject:
-            self.delta_transition_table[input_symbol][stack_top] = None     # the none flag will be used to reject
-        else:
-            self.delta_transition_table[input_symbol][stack_top] = (end_state, stack_new)
+        # print "added rule", input_symbol, stack_top, end_state, stack_new
+
+        # cast the input symbol to an integer for indexing
+        input_symbol = int(input_symbol)
+
+        try:
+            if reject:
+                    self.delta_transition_table[input_symbol][stack_top] = None   # the none flag will be used to reject
+            else:
+                self.delta_transition_table[input_symbol][stack_top] = (end_state, stack_new)
+                # print "success"
+        except:
+            pass
         return
 
     def test(self, string):
+        # print "began testing"
         for symbol in string:
+            print symbol
             result = self.make_move(symbol)
             # make_move should return none unless the end of the stack was reached, then it returns the result
             if result is not None:
@@ -344,7 +365,13 @@ class PushDownAutomata(NFA):
 
     def make_move(self, input_symbol):
         stack_top = self.stack.pop()
+        # print "stack top: ", stack_top
+        # print "current state: ", self.current_state
+        # print self.delta_transition_table
+        input_symbol = int(input_symbol)
         result = self.delta_transition_table[input_symbol][stack_top]
+        # print "result: ", result
+        # print "stack: ", self.stack.peek()
         self.current_state = result[0]
         self.stack.push_all(result[1])
         # check to see if we are supposed to end here (empty stack)
@@ -487,7 +514,29 @@ def read_file(filename):
                 lang[-1] = lang[-1][:-1]
                 lang = [i.strip() for i in lang if i != " "]
                 pda.set_configuration(lang)
-                print lang
+                print lang, " ===================== "
+                pda.add_rules(lang)
+                try:
+                    pda.test('0111')
+                except:
+                    pass
+                # print "stack result ", pda.stack.get_current()
+                if pda.stack.get_current() == "Z":
+                    print "PASSES"
+                else:
+                    print "FAILS"
+        elif type == "cfg":
+            cfg = PushDownAutomata()
+            data = data["cfg"]
+            x = 0
+            for language in re.findall('\(.*?\)', cfg):
+                lang = language.split(",")
+                lang[0] = lang[0][1:]
+                lang[-1] = lang[-1][:-1]
+                lang = [i.strip() for i in lang if i != " "]
+                cfg.add_rule(lang[2], lang[0], x, lang[1])
+                x += 1
+            # do testing on cfg file
         return
     except KeyError:
         sigma = data["sigma"]
