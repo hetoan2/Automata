@@ -387,6 +387,52 @@ class PushDownAutomata(NFA):
                 self.delta_transition_table.append({})
 
 
+class TuringMachine(DFA):
+    def __init__(self):
+        super(TuringMachine, self).__init__()
+        self.tape = list()
+        self.position = 0
+        self.current_state = self.start_state
+
+    def load_tape(self, tape):
+        self.tape = list(tape)
+
+    def run_tape(self):
+        print self.current_state, self.accepting_states
+        while self.current_state not in self.accepting_states:
+            try:
+                tape_symbol = self.tape[self.position]
+            except:
+                # break out when we run out of tape (should we loop around?)
+                break
+            # print self.tape, self.current_state
+            if self.execute_move(tape_symbol):
+                break
+        return self.tape
+
+    def execute_move(self, input_symbol):
+        next_state, direction, tape_correction = self.delta_transition_table[self.current_state][str(input_symbol)]
+        # correct our tape
+        print next_state, direction, tape_correction
+        self.tape[self.position] = tape_correction
+        # update our position based off of the direction
+        if direction == "R":
+            self.position += 1
+        elif direction == "L":
+            self.position -= 1
+
+        # # wrap around our tape
+        # if self.position < 0:
+        #     self.position += len(self.tape)
+
+        if self.position > len(self.tape):
+            return True
+
+        # follow the transition to next state
+        self.current_state = next_state
+        return False
+
+
 # define helper class for tree structure
 class Node(object):
     def __init__(self, current_state, parent=None):
@@ -411,7 +457,13 @@ def parse_to_set(string, typecast):
     _set = []
     # get set from between brackets
     for n in string[string.index("{")+1:string.index("}")].split(","):
-        _set.append(typecast(n))
+        value = -1
+        try:
+            value = typecast(n)
+        except TypeError:
+            value = -1
+        finally:
+            _set.append(value)
     return _set
 
 
@@ -537,6 +589,58 @@ def read_file(filename):
                 cfg.add_rule(lang[2], lang[0], x, lang[1])
                 x += 1
             # do testing on cfg file
+        elif type == "turing":
+            print "created turing machine"
+            tm = TuringMachine()
+            sigma = data["sigma"]
+            q = data["Q"]
+            _q = data["start"]
+            tm.start_state = _q
+            tm.current_state = _q
+            f = data["F"]
+            delta = data["delta"]
+
+            try:
+                transition_string = data["tape"]
+                direction = data["order"]
+            except KeyError:
+                transition_string = None
+                direction = None
+
+            if direction == "<-":
+                transition_string = transition_string[::-1]
+
+            tm.load_tape(transition_string)
+            _sigma = parse_to_set(sigma, str)
+            _states = parse_to_set(q, state)
+            _f = parse_to_set(f, state)
+            # _delta = parse_delta_table(delta, _sigma, _states)
+
+            delta_table = {}
+            t = re.findall("\(([^\)]+)\)", delta)
+
+            for s in _states:
+                delta_table[s] = {}
+                for transition in _sigma:
+                    delta_table[s][str(transition).strip()] = None
+
+            for delta_transition in t:
+                # print delta_transition
+                start_state, tape_symbol_read, next_state, move_direction, tape_write = delta_transition.split(", ")
+                result_vector = (next_state, move_direction, tape_write)
+                # print result_vector
+                delta_table[start_state][str(tape_symbol_read)] = result_vector
+
+            print delta_table
+
+            tm.input_symbols = _sigma
+            tm.states = _states
+            tm.delta_transition_table = delta_table
+            tm.accepting_states = _f
+            # print tm.run_tape()
+            tm.run_tape()
+            print tm.tape
+
         return
     except KeyError:
         sigma = data["sigma"]
@@ -685,6 +789,8 @@ def process_file(filename):
         sigma, q, _q, f, delta, transition_string, conversion = read_file(filename)
     except:
         return
+    finally:
+        return  # TODO: remove this to bring back old functionality
 
     # load the file data here
     _sigma = parse_to_set(sigma, int)
