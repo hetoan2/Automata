@@ -421,9 +421,11 @@ class TuringMachine(DFA):
         elif direction == "L":
             self.position -= 1
 
-        # # wrap around our tape
-        # if self.position < 0:
-        #     self.position += len(self.tape)
+        # wrap around our tape
+        if self.position < 0:
+            self.position += len(self.tape)
+        if self.position >= len(self.tape):
+            self.position = 0
 
         if self.position > len(self.tape):
             return True
